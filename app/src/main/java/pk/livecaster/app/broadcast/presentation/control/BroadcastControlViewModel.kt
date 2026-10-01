@@ -107,6 +107,10 @@ class BroadcastControlViewModel(
     fun toggleTorch(): Boolean = publisher.toggleTorch()
     fun toggleCamera(): Boolean = publisher.toggleCameraFacing()
 
+    fun feedVideoFrame(yuvBytes: ByteArray) {
+        publisher.encodeVideoFrame(yuvBytes)
+    }
+
     fun toggleLowerThird() {
         _uiState.value = _uiState.value.copy(isLowerThirdVisible = !_uiState.value.isLowerThirdVisible)
     }

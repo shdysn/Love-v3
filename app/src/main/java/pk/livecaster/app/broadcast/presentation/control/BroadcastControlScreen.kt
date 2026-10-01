@@ -112,6 +112,9 @@ fun BroadcastControlScreen(
     }
 
     LaunchedEffect(Unit) {
+        cameraManager.onYuvFrameAvailable = { yuvBytes ->
+            viewModel.feedVideoFrame(yuvBytes)
+        }
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }

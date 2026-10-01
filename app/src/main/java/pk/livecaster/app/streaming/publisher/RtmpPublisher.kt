@@ -11,22 +11,21 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import pk.livecaster.app.core.constants.StreamConstants
 import pk.livecaster.app.streaming.encoder.AudioEncoderConfig
+import pk.livecaster.app.streaming.encoder.AudioMediaCodecEncoder
 import pk.livecaster.app.streaming.encoder.VideoEncoderConfig
+import pk.livecaster.app.streaming.encoder.VideoMediaCodecEncoder
+import pk.livecaster.app.streaming.rtmp.RtmpConnection
 import pk.livecaster.app.streaming.state.StreamHealth
 import pk.livecaster.app.streaming.state.StreamStatus
 import pk.livecaster.app.streaming.state.StreamTelemetry
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.InetSocketAddress
-import java.net.Socket
-import javax.net.ssl.SSLSocket
-import javax.net.ssl.SSLSocketFactory
 
 class RtmpPublisher(
     private val scope: CoroutineScope
 ) {
     private var streamJob: Job? = null
-    private var socket: Socket? = null
+    private var rtmpConnection: RtmpConnection? = null
+    private var videoEncoder: VideoMediaCodecEncoder? = null
+    private var audioEncoder: AudioMediaCodecEncoder? = null
 
     private val _telemetry = MutableStateFlow(StreamTelemetry())
     val telemetry: StateFlow<StreamTelemetry> = _telemetry.asStateFlow()
@@ -58,66 +57,38 @@ class RtmpPublisher(
         streamJob?.cancel()
         streamJob = scope.launch(Dispatchers.IO) {
             try {
-                val host = extractHostFromUrl(rtmpUrl)
-                val isRtmps = rtmpUrl.startsWith("rtmps://", ignoreCase = true)
-                val port = extractPortFromUrl(rtmpUrl, isRtmps)
+                val conn = RtmpConnection()
+                rtmpConnection = conn
 
-                val s: Socket = if (isRtmps) {
-                    val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-                    val sslSocket = sslFactory.createSocket() as SSLSocket
-                    sslSocket.connect(InetSocketAddress(host, port), 6000)
-                    sslSocket.startHandshake()
-                    sslSocket
-                } else {
-                    val raw = Socket()
-                    raw.connect(InetSocketAddress(host, port), 6000)
-                    raw
-                }
-                s.soTimeout = 10000
-                socket = s
+                // 1. Establish RTMP/RTMPS handshake, connect, createStream, publish and metadata
+                conn.connect(
+                    rtmpUrl = rtmpUrl,
+                    streamKey = streamKey,
+                    width = videoConfig.width,
+                    height = videoConfig.height,
+                    fps = videoConfig.frameRate,
+                    videoBitrateKbps = videoConfig.bitrateKbps
+                )
 
-                // Perform real RTMP handshake (C0, C1)
-                val out: OutputStream = s.getOutputStream()
-                val inStream: InputStream = s.getInputStream()
+                // 2. Start hardware video and audio encoders
+                val vEnc = VideoMediaCodecEncoder(
+                    rtmpConnection = conn,
+                    width = videoConfig.width,
+                    height = videoConfig.height,
+                    fps = videoConfig.frameRate,
+                    bitrateKbps = videoConfig.bitrateKbps
+                )
+                videoEncoder = vEnc
+                vEnc.start()
 
-                // C0 = 0x03
-                out.write(0x03)
-
-                // C1 = 1536 bytes
-                val c1 = ByteArray(1536)
-                java.security.SecureRandom().nextBytes(c1)
-                c1[0] = 0; c1[1] = 0; c1[2] = 0; c1[3] = 0
-                c1[4] = 0; c1[5] = 0; c1[6] = 0; c1[7] = 0
-                out.write(c1)
-                out.flush()
-
-                // Read S0 (1 byte)
-                val s0 = inStream.read()
-                if (s0 != 0x03) {
-                    throw IllegalStateException("Server returned unsupported protocol byte: $s0")
-                }
-
-                // Read S1 (1536 bytes)
-                val s1 = ByteArray(1536)
-                var readTotal = 0
-                while (readTotal < 1536) {
-                    val read = inStream.read(s1, readTotal, 1536 - readTotal)
-                    if (read < 0) throw IllegalStateException("Unexpected EOF during RTMP handshake")
-                    readTotal += read
-                }
-
-                // Send C2 (echo of S1)
-                out.write(s1)
-                out.flush()
-
-                // Read S2 (1536 bytes)
-                val s2 = ByteArray(1536)
-                readTotal = 0
-                while (readTotal < 1536) {
-                    val read = inStream.read(s2, readTotal, 1536 - readTotal)
-                    if (read < 0) throw IllegalStateException("Unexpected EOF during RTMP handshake confirmation")
-                    readTotal += read
-                }
+                val aEnc = AudioMediaCodecEncoder(
+                    rtmpConnection = conn,
+                    sampleRate = audioConfig.sampleRate,
+                    channelCount = audioConfig.channelCount,
+                    bitrate = audioConfig.bitrateKbps * 1000
+                )
+                audioEncoder = aEnc
+                aEnc.start()
 
                 _telemetry.value = _telemetry.value.copy(
                     status = StreamStatus.LIVE,
@@ -130,9 +101,6 @@ class RtmpPublisher(
                 while (isActive && _telemetry.value.status == StreamStatus.LIVE) {
                     delay(1000)
                     secondsElapsed++
-                    if (s.isClosed || !s.isConnected) {
-                        break
-                    }
                     _telemetry.value = _telemetry.value.copy(
                         durationSeconds = secondsElapsed,
                         currentFps = targetFps,
@@ -147,16 +115,30 @@ class RtmpPublisher(
                     status = StreamStatus.ERROR,
                     errorMessage = e.message ?: "Failed to connect to ingest server"
                 )
-            } finally {
-                cleanupSocket()
+                stopPublishing()
             }
+        }
+    }
+
+    fun encodeVideoFrame(yuvBytes: ByteArray) {
+        if (_telemetry.value.status == StreamStatus.LIVE) {
+            videoEncoder?.encodeYuv(yuvBytes)
         }
     }
 
     fun stopPublishing() {
         streamJob?.cancel()
         streamJob = null
-        cleanupSocket()
+
+        audioEncoder?.stop()
+        audioEncoder = null
+
+        videoEncoder?.stop()
+        videoEncoder = null
+
+        rtmpConnection?.close()
+        rtmpConnection = null
+
         _telemetry.value = _telemetry.value.copy(
             status = StreamStatus.STOPPED,
             currentFps = 0,
@@ -181,34 +163,5 @@ class RtmpPublisher(
         _telemetry.value = _telemetry.value.copy(isFrontCamera = newFacing)
         return newFacing
     }
-
-    private fun cleanupSocket() {
-        try {
-            socket?.close()
-        } catch (_: Exception) {}
-        socket = null
-    }
-
-    private fun extractHostFromUrl(url: String): String {
-        return try {
-            val clean = url.substringAfter("://").substringBefore("/")
-            clean.substringBefore(":")
-        } catch (_: Exception) {
-            "127.0.0.1"
-        }
-    }
-
-    private fun extractPortFromUrl(url: String, isRtmps: Boolean = false): Int {
-        val defaultPort = if (isRtmps) 443 else 1935
-        return try {
-            val clean = url.substringAfter("://").substringBefore("/")
-            if (clean.contains(":")) {
-                clean.substringAfter(":").toIntOrNull() ?: defaultPort
-            } else {
-                defaultPort
-            }
-        } catch (_: Exception) {
-            defaultPort
-        }
-    }
 }
+
