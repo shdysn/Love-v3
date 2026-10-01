@@ -48,6 +48,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.FacebookBrandColor
 import com.example.ui.theme.LiveRed
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material3.OutlinedButton
+import com.example.ui.theme.StudioGreen
 import com.example.ui.theme.RtmpBrandColor
 import com.example.ui.theme.StudioBorder
 import com.example.ui.theme.StudioCard
@@ -231,6 +236,124 @@ fun BroadcastSetupScreen(
                         .fillMaxWidth()
                         .testTag("broadcast_stream_key_input")
                 )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Test Connection Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.testConnection() },
+                        enabled = !uiState.isTestingConnection && uiState.rtmpUrl.isNotBlank(),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("test_connection_button")
+                    ) {
+                        if (uiState.isTestingConnection) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = StudioCyan
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Testing Ping...", style = MaterialTheme.typography.bodySmall.copy(color = StudioCyan))
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.NetworkCheck,
+                                contentDescription = null,
+                                tint = StudioCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Test Connection", style = MaterialTheme.typography.bodySmall.copy(color = StudioCyan))
+                        }
+                    }
+
+                    if (uiState.testConnectionResult != null) {
+                        Text(
+                            text = "Clear",
+                            style = MaterialTheme.typography.labelSmall.copy(color = TextMuted),
+                            modifier = Modifier
+                                .clickable { viewModel.clearConnectionTestResult() }
+                                .padding(4.dp)
+                        )
+                    }
+                }
+
+                // Connection Test Result Badge
+                uiState.testConnectionResult?.let { result ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    when (result) {
+                        is ConnectionTestResult.Success -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(StudioGreen.copy(alpha = 0.15f))
+                                    .border(1.dp, StudioGreen.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Success",
+                                        tint = StudioGreen,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "Connection Successful!",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = StudioGreen
+                                            )
+                                        )
+                                        Text(
+                                            text = "Reachable at ${result.host}:${result.port} • Latency: ${result.latencyMs} ms",
+                                            style = MaterialTheme.typography.labelSmall.copy(color = TextPrimary)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        is ConnectionTestResult.Error -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(LiveRed.copy(alpha = 0.15f))
+                                    .border(1.dp, LiveRed.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.ErrorOutline,
+                                        contentDescription = "Error",
+                                        tint = LiveRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "Connection Failed",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = LiveRed
+                                            )
+                                        )
+                                        Text(
+                                            text = result.message,
+                                            style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

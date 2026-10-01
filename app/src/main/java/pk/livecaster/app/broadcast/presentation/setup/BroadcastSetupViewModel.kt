@@ -15,6 +15,11 @@ import pk.livecaster.app.core.constants.StreamConstants
 import pk.livecaster.app.facebook.domain.repository.FacebookRepository
 import pk.livecaster.app.youtube.domain.repository.YouTubeRepository
 
+sealed class ConnectionTestResult {
+    data class Success(val host: String, val port: Int, val latencyMs: Long) : ConnectionTestResult()
+    data class Error(val message: String) : ConnectionTestResult()
+}
+
 data class BroadcastSetupUiState(
     val title: String = "",
     val description: String = "",
@@ -25,6 +30,8 @@ data class BroadcastSetupUiState(
     val bitrateKbps: Int = StreamConstants.DEFAULT_BITRATE_KBPS,
     val fps: Int = StreamConstants.DEFAULT_FPS,
     val isLoading: Boolean = false,
+    val isTestingConnection: Boolean = false,
+    val testConnectionResult: ConnectionTestResult? = null,
     val errorMessage: String? = null,
     val createdBroadcastId: Long? = null
 )
@@ -40,6 +47,68 @@ class BroadcastSetupViewModel(
 
     fun updateTitle(title: String) {
         _uiState.value = _uiState.value.copy(title = title, errorMessage = null)
+    }
+
+    fun testConnection() {
+        val current = _uiState.value
+        val url = current.rtmpUrl.trim()
+        if (url.isBlank()) {
+            _uiState.value = current.copy(
+                testConnectionResult = ConnectionTestResult.Error("Please enter an RTMP URL first")
+            )
+            return
+        }
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _uiState.value = _uiState.value.copy(isTestingConnection = true, testConnectionResult = null)
+            val startTime = System.currentTimeMillis()
+            try {
+                val host = extractHost(url)
+                val port = extractPort(url)
+                java.net.Socket().use { socket ->
+                    socket.connect(java.net.InetSocketAddress(host, port), 4000)
+                }
+                val latency = System.currentTimeMillis() - startTime
+                _uiState.value = _uiState.value.copy(
+                    isTestingConnection = false,
+                    testConnectionResult = ConnectionTestResult.Success(host, port, latency)
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isTestingConnection = false,
+                    testConnectionResult = ConnectionTestResult.Error(
+                        e.message ?: "Could not reach RTMP server"
+                    )
+                )
+            }
+        }
+    }
+
+    fun clearConnectionTestResult() {
+        _uiState.value = _uiState.value.copy(testConnectionResult = null)
+    }
+
+    private fun extractHost(url: String): String {
+        return try {
+            val clean = url.substringAfter("://").substringBefore("/")
+            clean.substringBefore(":")
+        } catch (_: Exception) {
+            url
+        }
+    }
+
+    private fun extractPort(url: String): Int {
+        val isRtmps = url.startsWith("rtmps://", ignoreCase = true)
+        return try {
+            val clean = url.substringAfter("://").substringBefore("/")
+            if (clean.contains(":")) {
+                clean.substringAfter(":").toIntOrNull() ?: if (isRtmps) 443 else 1935
+            } else {
+                if (isRtmps) 443 else 1935
+            }
+        } catch (_: Exception) {
+            if (isRtmps) 443 else 1935
+        }
     }
 
     fun updateDescription(desc: String) {
