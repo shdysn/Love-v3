@@ -36,25 +36,48 @@ class CameraCaptureManager(private val context: Context) {
             it.surfaceProvider = previewView.surfaceProvider
         }
 
-        val cameraSelector = CameraSelector.Builder()
-            .requireLensFacing(currentLensFacing)
-            .build()
-
         try {
             provider.unbindAll()
-            camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview)
+            val hasBack = try { provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) } catch (_: Exception) { false }
+            val hasFront = try { provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) } catch (_: Exception) { false }
+
+            val selector = when {
+                currentLensFacing == CameraSelector.LENS_FACING_BACK && hasBack -> CameraSelector.DEFAULT_BACK_CAMERA
+                hasFront -> {
+                    currentLensFacing = CameraSelector.LENS_FACING_FRONT
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                }
+                hasBack -> {
+                    currentLensFacing = CameraSelector.LENS_FACING_BACK
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                }
+                else -> CameraSelector.DEFAULT_BACK_CAMERA
+            }
+            camera = provider.bindToLifecycle(lifecycleOwner, selector, preview)
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("CameraCaptureManager", "Error binding camera preview", e)
         }
     }
 
     fun switchCamera(lifecycleOwner: LifecycleOwner, previewView: PreviewView): Boolean {
-        currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) {
-            CameraSelector.LENS_FACING_FRONT
-        } else {
-            CameraSelector.LENS_FACING_BACK
+        val provider = cameraProvider
+        if (provider != null) {
+            val targetFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) {
+                CameraSelector.LENS_FACING_FRONT
+            } else {
+                CameraSelector.LENS_FACING_BACK
+            }
+            val targetSelector = if (targetFacing == CameraSelector.LENS_FACING_FRONT) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
+            val hasTarget = try { provider.hasCamera(targetSelector) } catch (_: Exception) { false }
+            if (hasTarget) {
+                currentLensFacing = targetFacing
+                startCameraPreview(lifecycleOwner, previewView)
+            }
         }
-        startCameraPreview(lifecycleOwner, previewView)
         return currentLensFacing == CameraSelector.LENS_FACING_FRONT
     }
 

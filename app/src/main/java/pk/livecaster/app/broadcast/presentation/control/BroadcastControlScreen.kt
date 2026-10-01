@@ -1,5 +1,9 @@
 package pk.livecaster.app.broadcast.presentation.control
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -18,8 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,11 +50,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +96,27 @@ fun BroadcastControlScreen(
     val cameraManager = remember { CameraCaptureManager(context) }
     var previewViewRef by remember { androidx.compose.runtime.mutableStateOf<PreviewView?>(null) }
 
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasCameraPermission = granted
+        if (granted) {
+            previewViewRef?.let { cameraManager.bindCamera(lifecycleOwner, it) }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         onDispose {
             cameraManager.release()
@@ -106,29 +131,72 @@ fun BroadcastControlScreen(
             .background(StudioDark)
     ) {
         // 1. Camera Viewport
-        AndroidView(
-            factory = { ctx ->
-                PreviewView(ctx).apply {
-                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    cameraManager.bindCamera(lifecycleOwner, this)
-                    previewViewRef = this
+        if (hasCameraPermission) {
+            AndroidView(
+                factory = { ctx ->
+                    PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+                        cameraManager.bindCamera(lifecycleOwner, this)
+                        previewViewRef = this
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("camera_preview_view")
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(StudioDark),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = null,
+                        tint = LiveRed,
+                        modifier = Modifier.size(54.dp)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Camera Permission Required",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Please allow camera access to display your live video feed.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Button(
+                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        colors = ButtonDefaults.buttonColors(containerColor = LiveRed)
+                    ) {
+                        Text("Grant Camera Permission", color = TextPrimary)
+                    }
                 }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("camera_preview_view")
-        )
+            }
+        }
 
-        // Gradient vignette for HUD readability
+        // Lightweight vignette for HUD readability without dimming video
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            StudioDark.copy(alpha = 0.85f),
+                            StudioDark.copy(alpha = 0.5f),
                             Color.Transparent,
-                            StudioDark.copy(alpha = 0.9f)
+                            Color.Transparent,
+                            StudioDark.copy(alpha = 0.6f)
                         )
                     )
                 )
@@ -306,44 +374,23 @@ fun BroadcastControlScreen(
             }
         }
 
-        // 4. Live Chat Overlay
-        if (isLive && uiState.chatMessages.isNotEmpty()) {
+        // 4. Status Error Banner if stream disconnected
+        if (uiState.telemetry.status == StreamStatus.ERROR && uiState.telemetry.errorMessage != null) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(bottom = 220.dp, start = 16.dp)
-                    .width(260.dp)
-                    .height(130.dp)
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 160.dp, start = 16.dp, end = 16.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(LiveRed.copy(alpha = 0.9f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                LazyColumn(
-                    reverseLayout = true,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(uiState.chatMessages.reversed(), key = { it.id }) { chat ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(StudioDark.copy(alpha = 0.75f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Row {
-                                Text(
-                                    text = "${chat.sender}: ",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = StudioCyan
-                                    )
-                                )
-                                Text(
-                                    text = chat.message,
-                                    style = MaterialTheme.typography.labelSmall.copy(color = TextPrimary),
-                                    maxLines = 2
-                                )
-                            }
-                        }
-                    }
-                }
+                Text(
+                    text = "⚠️ ${uiState.telemetry.errorMessage}",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                )
             }
         }
 

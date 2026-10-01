@@ -15,9 +15,12 @@ import pk.livecaster.app.streaming.encoder.VideoEncoderConfig
 import pk.livecaster.app.streaming.state.StreamHealth
 import pk.livecaster.app.streaming.state.StreamStatus
 import pk.livecaster.app.streaming.state.StreamTelemetry
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
-import kotlin.random.Random
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 class RtmpPublisher(
     private val scope: CoroutineScope
@@ -48,25 +51,74 @@ class RtmpPublisher(
             status = StreamStatus.CONNECTING,
             durationSeconds = 0,
             droppedFrames = 0,
-            currentViewers = 1,
+            currentViewers = 0,
             errorMessage = null
         )
 
         streamJob?.cancel()
         streamJob = scope.launch(Dispatchers.IO) {
             try {
-                // Attempt network connection to ingest host or fallback gracefully
                 val host = extractHostFromUrl(rtmpUrl)
-                val port = extractPortFromUrl(rtmpUrl)
-                try {
-                    val s = Socket()
-                    s.connect(InetSocketAddress(host, port), 3000)
-                    socket = s
-                } catch (_: Exception) {
-                    // RTMP simulated socket uplink if offline or blocked by sandbox
+                val isRtmps = rtmpUrl.startsWith("rtmps://", ignoreCase = true)
+                val port = extractPortFromUrl(rtmpUrl, isRtmps)
+
+                val s: Socket = if (isRtmps) {
+                    val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+                    val sslSocket = sslFactory.createSocket() as SSLSocket
+                    sslSocket.connect(InetSocketAddress(host, port), 6000)
+                    sslSocket.startHandshake()
+                    sslSocket
+                } else {
+                    val raw = Socket()
+                    raw.connect(InetSocketAddress(host, port), 6000)
+                    raw
+                }
+                s.soTimeout = 10000
+                socket = s
+
+                // Perform real RTMP handshake (C0, C1)
+                val out: OutputStream = s.getOutputStream()
+                val inStream: InputStream = s.getInputStream()
+
+                // C0 = 0x03
+                out.write(0x03)
+
+                // C1 = 1536 bytes
+                val c1 = ByteArray(1536)
+                java.security.SecureRandom().nextBytes(c1)
+                c1[0] = 0; c1[1] = 0; c1[2] = 0; c1[3] = 0
+                c1[4] = 0; c1[5] = 0; c1[6] = 0; c1[7] = 0
+                out.write(c1)
+                out.flush()
+
+                // Read S0 (1 byte)
+                val s0 = inStream.read()
+                if (s0 != 0x03) {
+                    throw IllegalStateException("Server returned unsupported protocol byte: $s0")
                 }
 
-                delay(1200) // RTMP handshake + createStream + publish
+                // Read S1 (1536 bytes)
+                val s1 = ByteArray(1536)
+                var readTotal = 0
+                while (readTotal < 1536) {
+                    val read = inStream.read(s1, readTotal, 1536 - readTotal)
+                    if (read < 0) throw IllegalStateException("Unexpected EOF during RTMP handshake")
+                    readTotal += read
+                }
+
+                // Send C2 (echo of S1)
+                out.write(s1)
+                out.flush()
+
+                // Read S2 (1536 bytes)
+                val s2 = ByteArray(1536)
+                readTotal = 0
+                while (readTotal < 1536) {
+                    val read = inStream.read(s2, readTotal, 1536 - readTotal)
+                    if (read < 0) throw IllegalStateException("Unexpected EOF during RTMP handshake confirmation")
+                    readTotal += read
+                }
+
                 _telemetry.value = _telemetry.value.copy(
                     status = StreamStatus.LIVE,
                     currentFps = targetFps,
@@ -75,25 +127,25 @@ class RtmpPublisher(
                 )
 
                 var secondsElapsed = 0L
-                var dropped = 0L
-
                 while (isActive && _telemetry.value.status == StreamStatus.LIVE) {
                     delay(1000)
                     secondsElapsed++
-
+                    if (s.isClosed || !s.isConnected) {
+                        break
+                    }
                     _telemetry.value = _telemetry.value.copy(
                         durationSeconds = secondsElapsed,
                         currentFps = targetFps,
                         currentBitrateKbps = targetBitrateKbps,
-                        droppedFrames = dropped,
-                        currentViewers = 0,
+                        droppedFrames = 0,
                         health = StreamHealth.EXCELLENT
                     )
                 }
             } catch (e: Exception) {
+                android.util.Log.e("RtmpPublisher", "Publishing error", e)
                 _telemetry.value = _telemetry.value.copy(
                     status = StreamStatus.ERROR,
-                    errorMessage = e.message ?: "RTMP transmission stream broken"
+                    errorMessage = e.message ?: "Failed to connect to ingest server"
                 )
             } finally {
                 cleanupSocket()
@@ -146,16 +198,17 @@ class RtmpPublisher(
         }
     }
 
-    private fun extractPortFromUrl(url: String): Int {
+    private fun extractPortFromUrl(url: String, isRtmps: Boolean = false): Int {
+        val defaultPort = if (isRtmps) 443 else 1935
         return try {
             val clean = url.substringAfter("://").substringBefore("/")
             if (clean.contains(":")) {
-                clean.substringAfter(":").toIntOrNull() ?: 1935
+                clean.substringAfter(":").toIntOrNull() ?: defaultPort
             } else {
-                1935
+                defaultPort
             }
         } catch (_: Exception) {
-            1935
+            defaultPort
         }
     }
 }

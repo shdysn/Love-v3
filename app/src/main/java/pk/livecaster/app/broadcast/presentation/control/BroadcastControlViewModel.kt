@@ -51,7 +51,6 @@ class BroadcastControlViewModel(
     val uiState: StateFlow<BroadcastControlUiState> = _uiState.asStateFlow()
 
     private var vuMeterJob: Job? = null
-    private var chatSimulationJob: Job? = null
 
     init {
         observeBroadcast()
@@ -93,7 +92,6 @@ class BroadcastControlViewModel(
         viewModelScope.launch {
             updateStatusUseCase(broadcastId, BroadcastStatus.LIVE)
         }
-        startChatSimulation()
     }
 
     fun stopLiveStream() {
@@ -103,7 +101,6 @@ class BroadcastControlViewModel(
         viewModelScope.launch {
             updateStatusUseCase(broadcastId, BroadcastStatus.ENDED)
         }
-        chatSimulationJob?.cancel()
     }
 
     fun toggleMic(): Boolean = publisher.toggleMicMute()
@@ -133,36 +130,8 @@ class BroadcastControlViewModel(
         }
     }
 
-    private fun startChatSimulation() {
-        chatSimulationJob?.cancel()
-        chatSimulationJob = viewModelScope.launch {
-            val sampleComments = listOf(
-                "Tariq" to "Audio and video crystal clear from Lahore! 🇵🇰",
-                "Ayesha" to "Great quality broadcast, FPS is solid",
-                "Bilal" to "Mashallah, live stream looking super professional!",
-                "Hamza" to "Hello from Karachi, watching the stream",
-                "Zainab" to "What encoder bitrate are you running?",
-                "Usman" to "Stream quality is top notch!"
-            )
-            var index = 0
-            while (true) {
-                delay(4000)
-                val (sender, text) = sampleComments[index % sampleComments.size]
-                val msg = LiveChatMessage(
-                    id = "msg_${System.currentTimeMillis()}",
-                    sender = sender,
-                    message = text
-                )
-                val updated = (_uiState.value.chatMessages + msg).takeLast(6)
-                _uiState.value = _uiState.value.copy(chatMessages = updated)
-                index++
-            }
-        }
-    }
-
     override fun onCleared() {
         super.onCleared()
         vuMeterJob?.cancel()
-        chatSimulationJob?.cancel()
     }
 }
