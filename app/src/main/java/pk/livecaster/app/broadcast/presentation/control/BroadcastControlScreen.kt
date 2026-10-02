@@ -368,8 +368,13 @@ fun BroadcastControlScreen(
                             ),
                             maxLines = 1
                         )
+                        val platformLabel = when (uiState.broadcast?.platform) {
+                            pk.livecaster.app.broadcast.domain.model.PlatformType.MULTI_DESTINATION -> "Simulcast • FACEBOOK + YOUTUBE"
+                            null -> "RTMP"
+                            else -> uiState.broadcast?.platform?.name ?: "RTMP"
+                        }
                         Text(
-                            text = "LiveCaster Ingest • ${uiState.broadcast?.platform?.name ?: "RTMP"}",
+                            text = "LiveCaster Ingest • $platformLabel",
                             style = MaterialTheme.typography.labelSmall.copy(color = StudioCyan)
                         )
                     }

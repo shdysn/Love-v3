@@ -72,6 +72,7 @@ fun ConnectAccountsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     if (onNavigateBack != null) {
         BackHandler(onBack = onNavigateBack)
@@ -153,7 +154,9 @@ fun ConnectAccountsScreen(
                 onSelectPage = { viewModel.selectFacebookPage(it) },
                 onCancel = { viewModel.cancelFacebook() },
                 onConnectPage = { viewModel.connectFacebookPage() },
-                onDisconnect = { viewModel.disconnectFacebook() }
+                onDisconnect = { viewModel.disconnectFacebook() },
+                onLoginWithChrome = { viewModel.openFacebookInChrome(context) },
+                onOpenLiveProducer = { viewModel.openFacebookLiveProducer(context) }
             )
 
             HorizontalDivider(color = StudioBorder, thickness = 1.dp)
@@ -172,7 +175,9 @@ fun ConnectAccountsScreen(
                 onSelectChannel = { viewModel.selectYouTubeChannel(it) },
                 onCancel = { viewModel.cancelGoogle() },
                 onConnectChannel = { viewModel.connectYouTubeChannel() },
-                onDisconnect = { viewModel.disconnectYouTube() }
+                onDisconnect = { viewModel.disconnectYouTube() },
+                onLoginWithChrome = { viewModel.openGoogleInChrome(context) },
+                onOpenLiveStudio = { viewModel.openYouTubeLiveStudio(context) }
             )
 
             HorizontalDivider(color = StudioBorder, thickness = 1.dp)

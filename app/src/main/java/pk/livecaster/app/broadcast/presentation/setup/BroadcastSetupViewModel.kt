@@ -23,9 +23,10 @@ sealed class ConnectionTestResult {
 data class BroadcastSetupUiState(
     val title: String = "",
     val description: String = "",
-    val platform: PlatformType = PlatformType.YOUTUBE,
-    val rtmpUrl: String = "rtmp://a.rtmp.youtube.com/live2",
+    val platform: PlatformType = PlatformType.MULTI_DESTINATION,
+    val rtmpUrl: String = "rtmps://live-api-s.facebook.com:443/rtmp/|rtmp://a.rtmp.youtube.com/live2",
     val streamKey: String = "",
+    val youtubeStreamKey: String = "",
     val resolution: String = "720p",
     val bitrateKbps: Int = StreamConstants.DEFAULT_BITRATE_KBPS,
     val fps: Int = StreamConstants.DEFAULT_FPS,
@@ -120,7 +121,7 @@ class BroadcastSetupViewModel(
             PlatformType.FACEBOOK -> "rtmps://live-api-s.facebook.com:443/rtmp/"
             PlatformType.YOUTUBE -> "rtmp://a.rtmp.youtube.com/live2"
             PlatformType.CUSTOM_RTMP -> ""
-            PlatformType.MULTI_DESTINATION -> "rtmps://live-api-s.facebook.com:443/rtmp/"
+            PlatformType.MULTI_DESTINATION -> "rtmps://live-api-s.facebook.com:443/rtmp/|rtmp://a.rtmp.youtube.com/live2"
         }
         _uiState.value = _uiState.value.copy(
             platform = platform,
@@ -137,6 +138,10 @@ class BroadcastSetupViewModel(
         _uiState.value = _uiState.value.copy(streamKey = key)
     }
 
+    fun updateYoutubeStreamKey(key: String) {
+        _uiState.value = _uiState.value.copy(youtubeStreamKey = key)
+    }
+
     fun updateQuality(resolution: String, bitrate: Int, fps: Int) {
         _uiState.value = _uiState.value.copy(
             resolution = resolution,
@@ -147,21 +152,38 @@ class BroadcastSetupViewModel(
 
     fun createAndStartBroadcast(onSuccess: (broadcastId: Long) -> Unit) {
         val current = _uiState.value
-        val url = current.rtmpUrl.trim()
-        val key = current.streamKey.trim()
 
-        if (url.isBlank()) {
-            _uiState.value = current.copy(errorMessage = "Please enter RTMP server endpoint")
-            return
-        }
+        val finalUrl: String
+        val finalKey: String
 
-        if (key.isBlank()) {
-            _uiState.value = current.copy(errorMessage = "Please enter your Live Stream Key")
-            return
+        if (current.platform == PlatformType.MULTI_DESTINATION) {
+            val fbKey = current.streamKey.trim()
+            val ytKey = current.youtubeStreamKey.trim()
+            if (fbKey.isBlank() && ytKey.isBlank()) {
+                _uiState.value = current.copy(errorMessage = "Please enter at least one Stream Key (Facebook or YouTube)")
+                return
+            }
+            finalUrl = "rtmps://live-api-s.facebook.com:443/rtmp/|rtmp://a.rtmp.youtube.com/live2"
+            finalKey = "$fbKey|$ytKey"
+        } else {
+            finalUrl = current.rtmpUrl.trim()
+            finalKey = current.streamKey.trim()
+            if (finalUrl.isBlank()) {
+                _uiState.value = current.copy(errorMessage = "Please enter RTMP server endpoint")
+                return
+            }
+            if (finalKey.isBlank()) {
+                _uiState.value = current.copy(errorMessage = "Please enter your Live Stream Key")
+                return
+            }
         }
 
         val streamTitle = current.title.trim().ifBlank {
-            "Live Stream (${current.platform.name})"
+            if (current.platform == PlatformType.MULTI_DESTINATION) {
+                "Simulcast (Facebook + YouTube Live)"
+            } else {
+                "Live Stream (${current.platform.name})"
+            }
         }
 
         viewModelScope.launch {
@@ -170,8 +192,8 @@ class BroadcastSetupViewModel(
             val broadcast = Broadcast(
                 title = streamTitle,
                 description = current.description.trim(),
-                rtmpUrl = url,
-                streamKey = key,
+                rtmpUrl = finalUrl,
+                streamKey = finalKey,
                 platform = current.platform,
                 status = BroadcastStatus.DRAFT,
                 resolution = current.resolution,

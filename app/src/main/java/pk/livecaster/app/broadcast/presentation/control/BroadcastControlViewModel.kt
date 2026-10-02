@@ -11,11 +11,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import pk.livecaster.app.broadcast.domain.model.Broadcast
 import pk.livecaster.app.broadcast.domain.model.BroadcastStatus
+import pk.livecaster.app.broadcast.domain.model.PlatformType
 import pk.livecaster.app.broadcast.domain.repository.BroadcastRepository
 import pk.livecaster.app.broadcast.domain.usecase.GetBroadcastsUseCase
 import pk.livecaster.app.broadcast.domain.usecase.UpdateBroadcastStatusUseCase
 import pk.livecaster.app.streaming.encoder.AudioEncoderConfig
 import pk.livecaster.app.streaming.encoder.VideoEncoderConfig
+import pk.livecaster.app.streaming.publisher.RtmpEndpoint
 import pk.livecaster.app.streaming.publisher.RtmpPublisher
 import pk.livecaster.app.streaming.service.LiveStreamingService
 import pk.livecaster.app.streaming.state.StreamStatus
@@ -87,11 +89,28 @@ class BroadcastControlViewModel(
         val audioConfig = AudioEncoderConfig()
 
         LiveStreamingService.startService(appContext, bc.title)
-        publisher.startPublishing(bc.rtmpUrl, bc.streamKey, videoConfig, audioConfig)
+        val endpoints = parseEndpoints(bc.rtmpUrl, bc.streamKey, bc.platform)
+        publisher.startPublishing(endpoints, videoConfig, audioConfig)
 
         viewModelScope.launch {
             updateStatusUseCase(broadcastId, BroadcastStatus.LIVE)
         }
+    }
+
+    private fun parseEndpoints(url: String, key: String, platform: PlatformType): List<RtmpEndpoint> {
+        if (url.contains("|") && key.contains("|")) {
+            val urls = url.split("|")
+            val keys = key.split("|")
+            return urls.zip(keys).mapIndexed { idx, (u, k) ->
+                val name = when {
+                    u.contains("facebook", ignoreCase = true) -> "Facebook"
+                    u.contains("youtube", ignoreCase = true) -> "YouTube"
+                    else -> "Destination ${idx + 1}"
+                }
+                RtmpEndpoint(name = name, rtmpUrl = u.trim(), streamKey = k.trim())
+            }
+        }
+        return listOf(RtmpEndpoint(name = platform.name, rtmpUrl = url.trim(), streamKey = key.trim()))
     }
 
     fun stopLiveStream() {

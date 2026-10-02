@@ -63,6 +63,15 @@ class AppContainer(val context: Context) {
 
     val settingsRepository by lazy { SettingsRepositoryImpl(context) }
 
+    // Chrome OAuth Manager
+    val oAuthChromeManager by lazy {
+        pk.livecaster.app.core.auth.OAuthChromeManager(
+            tokenStorage = tokenStorage,
+            facebookRepository = facebookRepository,
+            youtubeRepository = youtubeRepository
+        )
+    }
+
     // Streaming Publisher
     val rtmpPublisher by lazy { RtmpPublisher(appScope) }
 

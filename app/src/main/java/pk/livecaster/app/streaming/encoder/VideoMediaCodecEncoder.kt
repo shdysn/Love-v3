@@ -4,11 +4,11 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
-import pk.livecaster.app.streaming.rtmp.RtmpConnection
+import pk.livecaster.app.streaming.rtmp.RtmpStreamSink
 import java.nio.ByteBuffer
 
 class VideoMediaCodecEncoder(
-    private val rtmpConnection: RtmpConnection,
+    private val rtmpSink: RtmpStreamSink,
     private val width: Int = 1280,
     private val height: Int = 720,
     private val fps: Int = 30,
@@ -19,6 +19,10 @@ class VideoMediaCodecEncoder(
     private var startTimeMs: Long = 0
     private var sequenceHeaderSent = false
     private var drainThread: Thread? = null
+    private var keepAliveThread: Thread? = null
+    private var lastFrameBytes: ByteArray? = null
+    @Volatile
+    private var lastFrameTimeMs: Long = 0
 
     fun start() {
         if (isEncoding) return
@@ -43,8 +47,10 @@ class VideoMediaCodecEncoder(
             isEncoding = true
             sequenceHeaderSent = false
             startTimeMs = System.currentTimeMillis()
+            lastFrameTimeMs = startTimeMs
 
             startDrainThread()
+            startKeepAliveThread()
             Log.d(TAG, "Video H.264 MediaCodec started successfully: ${width}x${height} @ ${bitrateKbps}kbps")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start H.264 video encoder", e)
@@ -53,6 +59,12 @@ class VideoMediaCodecEncoder(
     }
 
     fun encodeYuv(nv21OrYuv420: ByteArray) {
+        lastFrameBytes = nv21OrYuv420
+        lastFrameTimeMs = System.currentTimeMillis()
+        encodeInternal(nv21OrYuv420)
+    }
+
+    private fun encodeInternal(nv21OrYuv420: ByteArray) {
         val codec = mediaCodec ?: return
         if (!isEncoding) return
 
@@ -69,6 +81,37 @@ class VideoMediaCodecEncoder(
         } catch (e: Exception) {
             Log.e(TAG, "Error queuing frame to MediaCodec", e)
         }
+    }
+
+    private fun startKeepAliveThread() {
+        keepAliveThread = Thread({
+            while (isEncoding) {
+                try {
+                    Thread.sleep(150)
+                    val now = System.currentTimeMillis()
+                    // If app is in background and no camera frames have arrived for > 250ms
+                    if (isEncoding && now - lastFrameTimeMs > 250) {
+                        val frame = lastFrameBytes ?: createStandbyFrame()
+                        encodeInternal(frame)
+                        lastFrameTimeMs = now
+                    }
+                } catch (_: InterruptedException) {
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Keep-alive video loop error", e)
+                }
+            }
+        }, "LiveCaster-VideoKeepAlive")
+        keepAliveThread?.start()
+    }
+
+    private fun createStandbyFrame(): ByteArray {
+        val ySize = width * height
+        val uvSize = width * height / 2
+        val standby = ByteArray(ySize + uvSize)
+        java.util.Arrays.fill(standby, 0, ySize, 16.toByte())
+        java.util.Arrays.fill(standby, ySize, standby.size, 128.toByte())
+        return standby
     }
 
     private fun startDrainThread() {
@@ -115,7 +158,7 @@ class VideoMediaCodecEncoder(
         val spsPps = parseSpsPps(configData)
         if (spsPps != null) {
             val (sps, pps) = spsPps
-            rtmpConnection.sendAvcSequenceHeader(sps, pps)
+            rtmpSink.sendAvcSequenceHeader(sps, pps)
             sequenceHeaderSent = true
             Log.d(TAG, "AVC Sequence Header sent (SPS: ${sps.size}b, PPS: ${pps.size}b)")
         }
@@ -135,7 +178,7 @@ class VideoMediaCodecEncoder(
 
                 val cleanSps = removeStartCode(sps)
                 val cleanPps = removeStartCode(pps)
-                rtmpConnection.sendAvcSequenceHeader(cleanSps, cleanPps)
+                rtmpSink.sendAvcSequenceHeader(cleanSps, cleanPps)
                 sequenceHeaderSent = true
                 Log.d(TAG, "Extracted SPS/PPS from outputFormat and sent sequence header")
             }
@@ -151,7 +194,7 @@ class VideoMediaCodecEncoder(
                     // SPS or PPS, already handled
                     continue
                 }
-                rtmpConnection.sendVideoNalu(nalu, isKeyframe, timestampMs)
+                rtmpSink.sendVideoNalu(nalu, isKeyframe, timestampMs)
             }
         }
     }
@@ -209,6 +252,8 @@ class VideoMediaCodecEncoder(
 
     fun stop() {
         isEncoding = false
+        keepAliveThread?.interrupt()
+        keepAliveThread = null
         try {
             mediaCodec?.stop()
             mediaCodec?.release()
@@ -216,6 +261,7 @@ class VideoMediaCodecEncoder(
         mediaCodec = null
         drainThread?.interrupt()
         drainThread = null
+        lastFrameBytes = null
     }
 
     companion object {

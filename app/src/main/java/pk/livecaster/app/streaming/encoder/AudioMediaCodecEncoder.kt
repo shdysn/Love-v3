@@ -8,11 +8,11 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaRecorder
 import android.util.Log
-import pk.livecaster.app.streaming.rtmp.RtmpConnection
+import pk.livecaster.app.streaming.rtmp.RtmpStreamSink
 import java.nio.ByteBuffer
 
 class AudioMediaCodecEncoder(
-    private val rtmpConnection: RtmpConnection,
+    private val rtmpSink: RtmpStreamSink,
     private val sampleRate: Int = 44100,
     private val channelCount: Int = 2,
     private val bitrate: Int = 128000
@@ -57,7 +57,7 @@ class AudioMediaCodecEncoder(
             }
 
             // Send AAC Sequence Header to RTMP
-            rtmpConnection.sendAacSequenceHeader(sampleRate, channelCount)
+            rtmpSink.sendAacSequenceHeader(sampleRate, channelCount)
 
             isRecording = true
             startTimeMs = System.currentTimeMillis()
@@ -105,7 +105,7 @@ class AudioMediaCodecEncoder(
                             outputBuffer.position(bufferInfo.offset)
                             outputBuffer.get(data)
                             val timestampMs = bufferInfo.presentationTimeUs / 1000
-                            rtmpConnection.sendAudioFrame(data, 0, data.size, timestampMs)
+                            rtmpSink.sendAudioFrame(data, 0, data.size, timestampMs)
                         }
                     }
                     codec.releaseOutputBuffer(outputBufferIndex, false)

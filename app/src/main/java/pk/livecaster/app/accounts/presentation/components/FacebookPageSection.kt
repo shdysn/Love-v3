@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,6 +60,8 @@ fun FacebookPageSection(
     onCancel: () -> Unit,
     onConnectPage: () -> Unit,
     onDisconnect: () -> Unit,
+    onLoginWithChrome: (() -> Unit)? = null,
+    onOpenLiveProducer: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -191,28 +194,56 @@ fun FacebookPageSection(
 
             // State B: Pre-Login Button
             if (!isConnected && !isLoggedIn) {
-                Button(
-                    onClick = onContinueWithFacebook,
-                    colors = ButtonDefaults.buttonColors(containerColor = FacebookBrandColor),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("continue_with_facebook_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Public,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Continue with Facebook",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onLoginWithChrome ?: onContinueWithFacebook,
+                        colors = ButtonDefaults.buttonColors(containerColor = FacebookBrandColor),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("continue_with_facebook_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
                         )
-                    )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Login via Chrome (Official Site)",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        )
+                    }
+
+                    if (onOpenLiveProducer != null) {
+                        OutlinedButton(
+                            onClick = onOpenLiveProducer,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("open_fb_live_producer_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInBrowser,
+                                contentDescription = null,
+                                tint = FacebookBrandColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open FB Live Producer in Chrome ↗",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                            )
+                        }
+                    }
                 }
             }
 

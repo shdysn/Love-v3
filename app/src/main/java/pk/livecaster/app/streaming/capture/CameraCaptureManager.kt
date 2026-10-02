@@ -22,6 +22,13 @@ class CameraCaptureManager(private val context: Context) {
     private var imageAnalysis: ImageAnalysis? = null
     var onYuvFrameAvailable: ((ByteArray) -> Unit)? = null
 
+    private fun getExecutor(): ExecutorService {
+        if (cameraExecutor.isShutdown || cameraExecutor.isTerminated) {
+            cameraExecutor = Executors.newSingleThreadExecutor()
+        }
+        return cameraExecutor
+    }
+
     fun bindCamera(
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
@@ -47,7 +54,7 @@ class CameraCaptureManager(private val context: Context) {
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
             .build()
 
-        analysis.setAnalyzer(cameraExecutor) { imageProxy ->
+        analysis.setAnalyzer(getExecutor()) { imageProxy ->
             try {
                 val callback = onYuvFrameAvailable
                 if (callback != null) {

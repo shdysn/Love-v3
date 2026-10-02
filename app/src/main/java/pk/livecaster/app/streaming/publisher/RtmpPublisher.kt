@@ -14,16 +14,24 @@ import pk.livecaster.app.streaming.encoder.AudioEncoderConfig
 import pk.livecaster.app.streaming.encoder.AudioMediaCodecEncoder
 import pk.livecaster.app.streaming.encoder.VideoEncoderConfig
 import pk.livecaster.app.streaming.encoder.VideoMediaCodecEncoder
+import pk.livecaster.app.streaming.rtmp.MultiRtmpDispatcher
 import pk.livecaster.app.streaming.rtmp.RtmpConnection
 import pk.livecaster.app.streaming.state.StreamHealth
 import pk.livecaster.app.streaming.state.StreamStatus
 import pk.livecaster.app.streaming.state.StreamTelemetry
+import java.util.concurrent.CopyOnWriteArrayList
+
+data class RtmpEndpoint(
+    val name: String,
+    val rtmpUrl: String,
+    val streamKey: String
+)
 
 class RtmpPublisher(
     private val scope: CoroutineScope
 ) {
     private var streamJob: Job? = null
-    private var rtmpConnection: RtmpConnection? = null
+    private val activeConnections = CopyOnWriteArrayList<RtmpConnection>()
     private var videoEncoder: VideoMediaCodecEncoder? = null
     private var audioEncoder: AudioMediaCodecEncoder? = null
 
@@ -39,11 +47,29 @@ class RtmpPublisher(
         videoConfig: VideoEncoderConfig,
         audioConfig: AudioEncoderConfig
     ) {
+        val endpoint = RtmpEndpoint(name = "Primary", rtmpUrl = rtmpUrl, streamKey = streamKey)
+        startPublishing(listOf(endpoint), videoConfig, audioConfig)
+    }
+
+    fun startPublishing(
+        endpoints: List<RtmpEndpoint>,
+        videoConfig: VideoEncoderConfig,
+        audioConfig: AudioEncoderConfig
+    ) {
         if (_telemetry.value.status == StreamStatus.LIVE || _telemetry.value.status == StreamStatus.CONNECTING) {
             return
         }
 
-        targetBitrateKbps = videoConfig.bitrateKbps + audioConfig.bitrateKbps
+        val validEndpoints = endpoints.filter { it.rtmpUrl.isNotBlank() && it.streamKey.isNotBlank() }
+        if (validEndpoints.isEmpty()) {
+            _telemetry.value = _telemetry.value.copy(
+                status = StreamStatus.ERROR,
+                errorMessage = "No valid streaming destinations provided"
+            )
+            return
+        }
+
+        targetBitrateKbps = (videoConfig.bitrateKbps + audioConfig.bitrateKbps) * validEndpoints.size
         targetFps = videoConfig.frameRate
 
         _telemetry.value = _telemetry.value.copy(
@@ -57,22 +83,37 @@ class RtmpPublisher(
         streamJob?.cancel()
         streamJob = scope.launch(Dispatchers.IO) {
             try {
-                val conn = RtmpConnection()
-                rtmpConnection = conn
+                activeConnections.clear()
+                val errors = mutableListOf<String>()
 
-                // 1. Establish RTMP/RTMPS handshake, connect, createStream, publish and metadata
-                conn.connect(
-                    rtmpUrl = rtmpUrl,
-                    streamKey = streamKey,
-                    width = videoConfig.width,
-                    height = videoConfig.height,
-                    fps = videoConfig.frameRate,
-                    videoBitrateKbps = videoConfig.bitrateKbps
-                )
+                for (endpoint in validEndpoints) {
+                    try {
+                        val conn = RtmpConnection()
+                        conn.connect(
+                            rtmpUrl = endpoint.rtmpUrl,
+                            streamKey = endpoint.streamKey,
+                            width = videoConfig.width,
+                            height = videoConfig.height,
+                            fps = videoConfig.frameRate,
+                            videoBitrateKbps = videoConfig.bitrateKbps
+                        )
+                        activeConnections.add(conn)
+                        android.util.Log.d("RtmpPublisher", "Successfully connected to ${endpoint.name}")
+                    } catch (e: Exception) {
+                        android.util.Log.e("RtmpPublisher", "Failed to connect to ${endpoint.name}", e)
+                        errors.add("${endpoint.name}: ${e.message ?: "Failed"}")
+                    }
+                }
 
-                // 2. Start hardware video and audio encoders
+                if (activeConnections.isEmpty()) {
+                    throw IllegalStateException("Failed to connect to any destination: ${errors.joinToString(", ")}")
+                }
+
+                val dispatcher = MultiRtmpDispatcher(activeConnections)
+
+                // 2. Start hardware video and audio encoders feeding all active destinations
                 val vEnc = VideoMediaCodecEncoder(
-                    rtmpConnection = conn,
+                    rtmpSink = dispatcher,
                     width = videoConfig.width,
                     height = videoConfig.height,
                     fps = videoConfig.frameRate,
@@ -82,7 +123,7 @@ class RtmpPublisher(
                 vEnc.start()
 
                 val aEnc = AudioMediaCodecEncoder(
-                    rtmpConnection = conn,
+                    rtmpSink = dispatcher,
                     sampleRate = audioConfig.sampleRate,
                     channelCount = audioConfig.channelCount,
                     bitrate = audioConfig.bitrateKbps * 1000
@@ -136,8 +177,12 @@ class RtmpPublisher(
         videoEncoder?.stop()
         videoEncoder = null
 
-        rtmpConnection?.close()
-        rtmpConnection = null
+        for (conn in activeConnections) {
+            try {
+                conn.close()
+            } catch (_: Exception) {}
+        }
+        activeConnections.clear()
 
         _telemetry.value = _telemetry.value.copy(
             status = StreamStatus.STOPPED,

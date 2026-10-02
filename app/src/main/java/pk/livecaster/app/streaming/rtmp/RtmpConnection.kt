@@ -11,7 +11,7 @@ import java.security.SecureRandom
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
-class RtmpConnection {
+class RtmpConnection : RtmpStreamSink {
 
     private var socket: Socket? = null
     private var outputStream: OutputStream? = null
@@ -67,6 +67,7 @@ class RtmpConnection {
             sendMetaData(width, height, fps, videoBitrateKbps)
 
             isConnected = true
+            startReaderThread()
             Log.d(TAG, "RTMP connection successfully established and published!")
             return true
         } catch (e: Exception) {
@@ -203,7 +204,7 @@ class RtmpConnection {
         sendRtmpPacket(csid = 3, messageType = 18, streamId = 1, timestamp = 0, payload = amf.toByteArray())
     }
 
-    fun sendAvcSequenceHeader(sps: ByteArray, pps: ByteArray) {
+    override fun sendAvcSequenceHeader(sps: ByteArray, pps: ByteArray) {
         val out = ByteArrayOutputStream()
         // FLV Video Tag header
         out.write(0x17) // 1: Keyframe, 7: AVC
@@ -235,7 +236,7 @@ class RtmpConnection {
         sendRtmpPacket(csid = 6, messageType = 9, streamId = 1, timestamp = 0, payload = payload)
     }
 
-    fun sendVideoNalu(nalu: ByteArray, isKeyframe: Boolean, timestampMs: Long) {
+    override fun sendVideoNalu(nalu: ByteArray, isKeyframe: Boolean, timestampMs: Long) {
         val out = ByteArrayOutputStream(nalu.size + 9)
         // FLV Video Tag Header
         out.write(if (isKeyframe) 0x17 else 0x27)
@@ -255,7 +256,7 @@ class RtmpConnection {
         sendRtmpPacket(csid = 6, messageType = 9, streamId = 1, timestamp = timestampMs, payload = out.toByteArray())
     }
 
-    fun sendAacSequenceHeader(sampleRate: Int = 44100, channelCount: Int = 2) {
+    override fun sendAacSequenceHeader(sampleRate: Int, channelCount: Int) {
         val out = ByteArrayOutputStream()
         out.write(0xAF) // 10: AAC, 3: 44kHz, 1: 16-bit, 1: Stereo
         out.write(0x00) // AAC sequence header
@@ -274,7 +275,7 @@ class RtmpConnection {
         sendRtmpPacket(csid = 4, messageType = 8, streamId = 1, timestamp = 0, payload = out.toByteArray())
     }
 
-    fun sendAudioFrame(data: ByteArray, offset: Int, size: Int, timestampMs: Long) {
+    override fun sendAudioFrame(data: ByteArray, offset: Int, size: Int, timestampMs: Long) {
         val out = ByteArrayOutputStream(size + 2)
         out.write(0xAF)
         out.write(0x01) // AAC raw
@@ -325,8 +326,34 @@ class RtmpConnection {
         out.flush()
     }
 
+    private var readerThread: Thread? = null
+
+    private fun startReaderThread() {
+        readerThread = Thread({
+            val buffer = ByteArray(4096)
+            val inStream = inputStream ?: return@Thread
+            while (isConnected) {
+                try {
+                    val read = inStream.read(buffer)
+                    if (read < 0) {
+                        Log.d(TAG, "Server closed input stream")
+                        break
+                    }
+                } catch (e: Exception) {
+                    if (isConnected) {
+                        Log.w(TAG, "Reader thread exception: ${e.message}")
+                    }
+                    break
+                }
+            }
+        }, "LiveCaster-RtmpReader")
+        readerThread?.start()
+    }
+
     fun close() {
         isConnected = false
+        readerThread?.interrupt()
+        readerThread = null
         try { outputStream?.flush() } catch (_: Exception) {}
         try { outputStream?.close() } catch (_: Exception) {}
         try { inputStream?.close() } catch (_: Exception) {}

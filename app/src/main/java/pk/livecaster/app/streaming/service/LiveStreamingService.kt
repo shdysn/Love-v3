@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -13,6 +14,7 @@ import pk.livecaster.app.streaming.notification.StreamNotificationManager
 
 class LiveStreamingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var notificationManager: StreamNotificationManager
 
     override fun onCreate() {
@@ -20,6 +22,9 @@ class LiveStreamingService : Service() {
         notificationManager = StreamNotificationManager(this)
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LiveCaster:StreamWakeLock")
+
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "LiveCaster:StreamWifiLock")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -29,6 +34,9 @@ class LiveStreamingService : Service() {
         when (action) {
             ACTION_START -> {
                 wakeLock?.acquire(1000 * 60 * 180L) // 3 hours max wake lock
+                try {
+                    wifiLock?.acquire()
+                } catch (_: Exception) {}
                 val notification = notificationManager.buildNotification(
                     title = broadcastTitle,
                     statusText = "Streaming live • Tap to return to studio",
@@ -52,6 +60,9 @@ class LiveStreamingService : Service() {
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
+        if (wifiLock?.isHeld == true) {
+            wifiLock?.release()
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -60,6 +71,9 @@ class LiveStreamingService : Service() {
         super.onDestroy()
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
+        }
+        if (wifiLock?.isHeld == true) {
+            wifiLock?.release()
         }
     }
 

@@ -1,11 +1,14 @@
 package pk.livecaster.app.accounts.presentation
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import pk.livecaster.app.core.auth.OAuthChromeManager
+import pk.livecaster.app.core.auth.OAuthEvent
 import pk.livecaster.app.core.security.SecureTokenStorage
 import pk.livecaster.app.facebook.domain.repository.FacebookRepository
 import pk.livecaster.app.youtube.domain.repository.YouTubeRepository
@@ -17,6 +20,7 @@ data class ConnectAccountsUiState(
     val availableFacebookPages: List<String> = emptyList(),
     val isFacebookConnected: Boolean = false,
     val facebookConnectedName: String = "",
+    val customFacebookAppId: String = "",
     val facebookPermissions: List<String> = listOf(
         "View managed Pages",
         "Create live broadcasts",
@@ -29,6 +33,7 @@ data class ConnectAccountsUiState(
     val availableYouTubeChannels: List<String> = emptyList(),
     val isYouTubeConnected: Boolean = false,
     val youtubeConnectedName: String = "",
+    val customGoogleClientId: String = "",
     val youTubePermissions: List<String> = listOf(
         "View YouTube Channel",
         "Create and manage live broadcasts",
@@ -42,7 +47,8 @@ data class ConnectAccountsUiState(
 class ConnectAccountsViewModel(
     private val facebookRepository: FacebookRepository,
     private val youtubeRepository: YouTubeRepository,
-    private val tokenStorage: SecureTokenStorage
+    private val tokenStorage: SecureTokenStorage,
+    private val oAuthChromeManager: OAuthChromeManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ConnectAccountsUiState())
@@ -72,6 +78,63 @@ class ConnectAccountsViewModel(
                 )
             }
         }
+
+        // Listen for Chrome OAuth deep link events
+        oAuthChromeManager?.let { manager ->
+            viewModelScope.launch {
+                manager.authEvents.collect { event ->
+                    when (event) {
+                        is OAuthEvent.FacebookSuccess -> {
+                            _uiState.value = _uiState.value.copy(
+                                isFacebookConnected = true,
+                                facebookConnectedName = event.pageName,
+                                isFacebookLoggedIn = false,
+                                message = "Facebook account linked successfully via Chrome!"
+                            )
+                        }
+                        is OAuthEvent.GoogleSuccess -> {
+                            _uiState.value = _uiState.value.copy(
+                                isYouTubeConnected = true,
+                                youtubeConnectedName = event.channelTitle,
+                                isGoogleLoggedIn = false,
+                                message = "Google/YouTube account linked successfully via Chrome!"
+                            )
+                        }
+                        is OAuthEvent.Error -> {
+                            _uiState.value = _uiState.value.copy(
+                                message = "${event.platform} login error: ${event.message}"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun openFacebookInChrome(context: Context) {
+        val appId = _uiState.value.customFacebookAppId.trim().ifBlank { null }
+        oAuthChromeManager?.launchFacebookInChrome(context, appId)
+    }
+
+    fun openGoogleInChrome(context: Context) {
+        val clientId = _uiState.value.customGoogleClientId.trim().ifBlank { null }
+        oAuthChromeManager?.launchGoogleInChrome(context, clientId)
+    }
+
+    fun openFacebookLiveProducer(context: Context) {
+        oAuthChromeManager?.openFacebookLiveProducer(context)
+    }
+
+    fun openYouTubeLiveStudio(context: Context) {
+        oAuthChromeManager?.openYouTubeLiveStudio(context)
+    }
+
+    fun updateFacebookAppId(id: String) {
+        _uiState.value = _uiState.value.copy(customFacebookAppId = id)
+    }
+
+    fun updateGoogleClientId(id: String) {
+        _uiState.value = _uiState.value.copy(customGoogleClientId = id)
     }
 
     fun continueWithFacebook() {

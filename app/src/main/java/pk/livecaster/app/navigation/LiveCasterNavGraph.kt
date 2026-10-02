@@ -72,7 +72,8 @@ fun LiveCasterNavGraph(
                 ConnectAccountsViewModel(
                     appContainer.facebookRepository,
                     appContainer.youtubeRepository,
-                    appContainer.tokenStorage
+                    appContainer.tokenStorage,
+                    appContainer.oAuthChromeManager
                 )
             }
             ConnectAccountsScreen(

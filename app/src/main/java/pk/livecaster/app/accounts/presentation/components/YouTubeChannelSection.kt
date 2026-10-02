@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,6 +60,8 @@ fun YouTubeChannelSection(
     onCancel: () -> Unit,
     onConnectChannel: () -> Unit,
     onDisconnect: () -> Unit,
+    onLoginWithChrome: (() -> Unit)? = null,
+    onOpenLiveStudio: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -191,30 +194,57 @@ fun YouTubeChannelSection(
 
             // State B: Pre-Login Button
             if (!isConnected && !isLoggedIn) {
-                Button(
-                    onClick = onContinueWithGoogle,
-                    colors = ButtonDefaults.buttonColors(containerColor = StudioCardElevated),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, StudioBorder),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("continue_with_google_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = YouTubeBrandColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Continue with Google",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onLoginWithChrome ?: onContinueWithGoogle,
+                        colors = ButtonDefaults.buttonColors(containerColor = YouTubeBrandColor),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("continue_with_google_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
-                    )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Login via Chrome (Official Google)",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        )
+                    }
+
+                    if (onOpenLiveStudio != null) {
+                        OutlinedButton(
+                            onClick = onOpenLiveStudio,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("open_yt_live_studio_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInBrowser,
+                                contentDescription = null,
+                                tint = YouTubeBrandColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open YouTube Live Studio in Chrome ↗",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                            )
+                        }
+                    }
                 }
             }
 

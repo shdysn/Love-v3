@@ -144,31 +144,48 @@ fun BroadcastSetupScreen(
             }
         }
 
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            PlatformChip(
-                name = "Facebook",
-                icon = Icons.Default.Public,
-                isSelected = uiState.platform == PlatformType.FACEBOOK,
-                onClick = { viewModel.updatePlatform(PlatformType.FACEBOOK) },
-                modifier = Modifier.weight(1f)
-            )
-            PlatformChip(
-                name = "YouTube",
-                icon = Icons.Default.PlayCircle,
-                isSelected = uiState.platform == PlatformType.YOUTUBE,
-                onClick = { viewModel.updatePlatform(PlatformType.YOUTUBE) },
-                modifier = Modifier.weight(1f)
-            )
-            PlatformChip(
-                name = "Custom RTMP",
-                icon = Icons.Default.Cast,
-                isSelected = uiState.platform == PlatformType.CUSTOM_RTMP,
-                onClick = { viewModel.updatePlatform(PlatformType.CUSTOM_RTMP) },
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PlatformChip(
+                    name = "Simulcast (FB + YT)",
+                    icon = Icons.Default.Hub,
+                    isSelected = uiState.platform == PlatformType.MULTI_DESTINATION,
+                    onClick = { viewModel.updatePlatform(PlatformType.MULTI_DESTINATION) },
+                    modifier = Modifier.weight(1f)
+                )
+                PlatformChip(
+                    name = "Facebook",
+                    icon = Icons.Default.Public,
+                    isSelected = uiState.platform == PlatformType.FACEBOOK,
+                    onClick = { viewModel.updatePlatform(PlatformType.FACEBOOK) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PlatformChip(
+                    name = "YouTube",
+                    icon = Icons.Default.PlayCircle,
+                    isSelected = uiState.platform == PlatformType.YOUTUBE,
+                    onClick = { viewModel.updatePlatform(PlatformType.YOUTUBE) },
+                    modifier = Modifier.weight(1f)
+                )
+                PlatformChip(
+                    name = "Custom RTMP",
+                    icon = Icons.Default.Cast,
+                    isSelected = uiState.platform == PlatformType.CUSTOM_RTMP,
+                    onClick = { viewModel.updatePlatform(PlatformType.CUSTOM_RTMP) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -213,29 +230,94 @@ fun BroadcastSetupScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                OutlinedTextField(
-                    value = uiState.rtmpUrl,
-                    onValueChange = { viewModel.updateRtmpUrl(it) },
-                    label = { Text("RTMP Server Endpoint") },
-                    placeholder = { Text("e.g. rtmp://a.rtmp.youtube.com/live2") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("broadcast_rtmp_url_input")
-                )
+                if (uiState.platform == PlatformType.MULTI_DESTINATION) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(StudioCyan.copy(alpha = 0.12f))
+                            .border(1.dp, StudioCyan.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Hub,
+                                contentDescription = null,
+                                tint = StudioCyan,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Simulcast Mode: Live camera and audio will stream simultaneously to BOTH Facebook Live and YouTube Live!",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextPrimary)
+                            )
+                        }
+                    }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                OutlinedTextField(
-                    value = uiState.streamKey,
-                    onValueChange = { viewModel.updateStreamKey(it) },
-                    label = { Text("Stream Key") },
-                    placeholder = { Text("Enter your live stream key") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("broadcast_stream_key_input")
-                )
+                    OutlinedTextField(
+                        value = uiState.streamKey,
+                        onValueChange = { viewModel.updateStreamKey(it) },
+                        label = { Text("Facebook Stream Key") },
+                        placeholder = { Text("Paste FB Live Stream Key here") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = null,
+                                tint = FacebookBrandColor
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("broadcast_fb_stream_key_input")
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = uiState.youtubeStreamKey,
+                        onValueChange = { viewModel.updateYoutubeStreamKey(it) },
+                        label = { Text("YouTube Stream Key") },
+                        placeholder = { Text("Paste YouTube Live Stream Key here") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = null,
+                                tint = YouTubeBrandColor
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("broadcast_yt_stream_key_input")
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = uiState.rtmpUrl,
+                        onValueChange = { viewModel.updateRtmpUrl(it) },
+                        label = { Text("RTMP Server Endpoint") },
+                        placeholder = { Text("e.g. rtmp://a.rtmp.youtube.com/live2") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("broadcast_rtmp_url_input")
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = uiState.streamKey,
+                        onValueChange = { viewModel.updateStreamKey(it) },
+                        label = { Text("Stream Key") },
+                        placeholder = { Text("Enter your live stream key") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("broadcast_stream_key_input")
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 

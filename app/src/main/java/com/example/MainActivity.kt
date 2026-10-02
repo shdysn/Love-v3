@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.launch
 import pk.livecaster.app.LiveCasterApp
 import pk.livecaster.app.core.di.AppContainer
 
@@ -27,6 +30,8 @@ class MainActivity : ComponentActivity() {
             appContainer = AppContainer(applicationContext)
         }
 
+        handleOAuthIntent(intent)
+
         setContent {
             MyApplicationTheme {
                 Surface(
@@ -35,6 +40,23 @@ class MainActivity : ComponentActivity() {
                 ) {
                     LiveCasterApp(appContainer = appContainer)
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOAuthIntent(intent)
+    }
+
+    private fun handleOAuthIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        lifecycleScope.launch {
+            try {
+                appContainer.oAuthChromeManager.handleRedirect(uri)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error handling OAuth deep link", e)
             }
         }
     }
